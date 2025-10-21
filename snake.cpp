@@ -190,6 +190,9 @@ int main() {
         bool gameOver = false;
         bool victory = false;
 
+        FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE)); //очистка буфера перед началом
+        GetKEY();     // очистка массива клавиш
+        
         vector<Point> snake;
         int snake_Len = 1; 
         int score = 0; 
@@ -313,3 +316,4 @@ int main() {
 
     return 0;
 }
+
