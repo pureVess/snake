@@ -97,6 +97,7 @@ powershell -NoProfile -Command "[Console]::WindowWidth; [Console]::WindowHeight"
 | Столкновение со стеной | Проигрыш |
 | Столкновение с телом | Проигрыш |
 | Достигнут целевой счет | Победа |
+| Нажатие `ESC` | Завершение |
 
 ---
 
