@@ -136,21 +136,23 @@ void DrawField(int offsetX, int offsetY) {
 }
 
 // Запрос на повтор игры
-char AskReplay() {
+char AskReplay(int offsetX, int offsetY) {
     while (true) {
         ClearInputBuffer();
+        SetCursorPosition(offsetX, offsetY + field_Height + 2);
         cout << "Сыграть ещё раз? (Y/N): ";
         string input;
         getline(cin, input);
         if (input.empty()) continue;
         char c = toupper(input[0]);
         if (c == 'Y' || c == 'N') return c;
-        cout << "Введите только Y или N.\n";
+        SetCursorPosition(offsetX, offsetY + field_Height + 3);
+        cout << "Введите только Y или N. \n";
     }
 }
 
 int main() {
-    setlocale(LC_ALL, "");          
+    setlocale(LC_ALL, "");
     srand((unsigned int)time(0));
 
     while (true) {
@@ -194,23 +196,36 @@ int main() {
 
         // Проверка ширины и высоты
         if (!userW && !userH) {
-            field_Width  = max(MIN_W, min(MAX_W, consoleCols));
+            field_Width = max(MIN_W, min(MAX_W, consoleCols));
             field_Height = max(MIN_H, min(MAX_H, consoleRows - 2));
         }
         // если введена только ширина
         else if (userW && !userH) {
-            field_Width  = max(MIN_W, min(MAX_W, inW));
+            field_Width = max(MIN_W, min(MAX_W, inW));
             field_Height = max(MIN_H, min(MAX_H, consoleRows - 2));
         }
         // если введена только высота
         else if (!userW && userH) {
-            field_Width  = max(MIN_W, min(MAX_W, consoleCols));
+            field_Width = max(MIN_W, min(MAX_W, consoleCols));
             field_Height = max(MIN_H, min(MAX_H, inH));
         }
         // если обе введены
         else {
-            field_Width  = max(MIN_W, min(MAX_W, inW));
+            field_Width = max(MIN_W, min(MAX_W, inW));
             field_Height = max(MIN_H, min(MAX_H, inH));
+        }
+
+
+        // Усечение введеных ширины или длины для масштаба и разметки (125%) 
+        if (consoleCols == 211 && consoleRows == 54) {
+            if (field_Width >= 211) field_Width = 210;
+            if (field_Height >= 54) field_Height = 53;
+
+        }
+
+        if (consoleCols == 211 && consoleRows == 50) {
+            if (field_Width >= 211) field_Width = 210;
+            if (field_Height >= 50) field_Height = 49;
         }
 
         // Цель
@@ -219,13 +234,15 @@ int main() {
         cout << "Введите целевое количество очков для победы (1-" << maxPossibleScore << ", Enter=10): ";
         string scoreStr; getline(cin, scoreStr);
         if (!scoreStr.empty()) {
-            try { int v = stoi(scoreStr); if (v >= 1 && v <= maxPossibleScore) targetScore = v; }
+            try { int v = stoi(scoreStr); 
+            if (v >= 1 && v <= maxPossibleScore) targetScore = v; }
             catch (...) {}
         }
 
         GetConsoleSize(consoleCols, consoleRows);
-        bool isFullscreenLike = (consoleCols >= 237 && consoleRows >= 63);
-        
+        bool isFullscreenLike = (consoleCols == 237 && (consoleRows == 63 || consoleRows == 67) ||
+            consoleCols == 211 && (consoleRows == 50 || consoleRows ==  54));
+
         // Адаптация консоли под игровое поле (свернутая консоль)
         if (!isFullscreenLike) {
             TryResizeConsole(field_Width, field_Height + 2);
@@ -298,7 +315,9 @@ int main() {
                 gameOver = true; break;
             }
             // Столкновение с хвостом
-            for (int i = 1; i < snake_Len; ++i) if (snake[i].x == snake[0].x && snake[i].y == snake[0].y) { gameOver = true; break; }
+            for (int i = 1; i < snake_Len; ++i) if (snake[i].x == snake[0].x && snake[i].y == snake[0].y) { 
+                gameOver = true; break; 
+            }
             if (gameOver) break;
 
             // Поедание еды
@@ -321,11 +340,11 @@ int main() {
 
         // Завершение / вывод результатов
         ShowCursor();
-        SetCursorPosition(0, offsetY + field_Height + 1);
+        SetCursorPosition(offsetX, offsetY + field_Height + 1);
         if (victory) cout << "ПОЗДРАВЛЯЮ! Вы набрали " << score << " из " << targetScore << '\n';
         else cout << "Игра окончена! Счёт: " << score << '\n';
 
-        if (AskReplay() == 'N') break;
+        if (AskReplay(offsetX, offsetY) == 'N') break;
     }
 
     return 0;
