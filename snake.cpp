@@ -10,6 +10,7 @@
 #include <chrono>  
 #include <conio.h> 
 
+
 using namespace std;
 
 const char CHAR_EMPTY = ' ';
@@ -18,85 +19,125 @@ const char CHAR_SNAKE = 'O';
 const char CHAR_SNAKE_HEAD = '@';
 const char CHAR_FOOD = 'o';
 
-// Структура для координат точек (x, y)
 struct Point { int x, y; };
 enum Direction { UP, DOWN, LEFT, RIGHT };
 
-int field_Width = 40;
-int field_Height = 20;
-bool KEY[256];  // массив клавиш
-
+int field_Width = 0, field_Height = 0;
+int consoleCols, consoleRows;
+int tickMs;
+const int RATIO = 2;
+int targetScore;
+bool repeat = false;
+bool userW, userH;
+bool isFullscreenLike;
+bool stopInputThread;
+bool keyUp = false, keyDown = false,
+keyLeft = false, keyRight = false, keyEsc = false;
 
 // Перемещение курсора в нужную позицию через ANSI-коды
 void SetCursorPosition(int x, int y) {
     printf("\x1b[%d;%dH", y + 1, x + 1);
-    fflush(stdout);
 }
 
 // Очистка экрана ANSI-кодами
 void ClearScreen() {
     printf("\x1b[2J");
     SetCursorPosition(0, 0);
-    fflush(stdout);
 }
 
 // Скрыть/показать курсор (ANSI)
-void HideCursor() { printf("\x1b[?25l"); fflush(stdout); }
-void ShowCursor() { printf("\x1b[?25h"); fflush(stdout); }
+void HideCursor() { printf("\x1b[?25l"); }
+void ShowCursor() { printf("\x1b[?25h"); }
 
-// Получение размера консоли через PowerShell
-void GetConsoleSize(int& cols, int& rows) {
 
-    FILE* pipe = _popen(
-        "powershell -NoProfile -Command \"[Console]::WindowWidth; [Console]::WindowHeight\"",
-        "rt"
-    );
-    if (pipe) {
-        int w = 0, h = 0;
-        if (fscanf_s(pipe, "%d %d", &w, &h) == 2) {
-            if (w > 0 && h > 0) {
-                cols = w;
-                rows = h;
-                _pclose(pipe);
-                return;
-            }
-        }
-        _pclose(pipe);
+// Получение размеров консоли
+void GetConsoleSize(int& cols, int& rows)
+{
+    printf("\033[999C\033[999B\x1b[6n");
+
+    std::string resp;
+
+    while (true) {
+        resp.push_back((char)_getch());
+        if (resp.back() == 'R') break;
     }
-}
 
+    // Парсим 
+    int r = 0, c = 0;
+    if (sscanf_s(resp.c_str(), "\x1b[%d;%dR", &r, &c) == 2) {
+        rows = r;
+        cols = c;
+    }
+    printf("\x1b[2J\x1b[H");
+}
 
 // Меняем размер консоли через
 void TryResizeConsole(int cols, int rows) {
-    if (cols < 10) cols = 10;
-    if (rows < 6) rows = 6;
     char cmd[128];
     snprintf(cmd, sizeof(cmd), "mode con cols=%d lines=%d", cols, rows);
     system(cmd);
 }
 
+void KeyboardListen() {
+    while (!stopInputThread) {
+        if (_kbhit()) {
+            int ch = _getch();
 
-void GetKEY() {
-    // Обнуляем массив состояний
-    for (int i = 0; i < 256; ++i) KEY[i] = 0;
+            switch (ch) {
+            case 'W': case 'w': keyUp = true; break;
+            case 'S': case 's': keyDown = true; break;
+            case 'A': case 'a': keyLeft = true; break;
+            case 'D': case 'd': keyRight = true; break;
+            case 27:            keyEsc = true; break;
 
-    // Считываем все нажатия в буфере
-    while (_kbhit()) {
-        int ch = _getch();
-        if (ch == 0 || ch == 224) {
-            int s = _getch();
-            if (s == 72) { KEY['W'] = KEY['w'] = 1; }
-            else if (s == 80) { KEY['S'] = KEY['s'] = 1; }
-            else if (s == 75) { KEY['A'] = KEY['a'] = 1; }
-            else if (s == 77) { KEY['D'] = KEY['d'] = 1; }
+                // стрелки
+            case 224: {
+                int arrow = _getch();
+                if (arrow == 72) keyUp = true;
+                if (arrow == 80) keyDown = true;
+                if (arrow == 75) keyLeft = true;
+                if (arrow == 77) keyRight = true;
+                break;
+            }
+            }
         }
-        else {
-            KEY[toupper(ch & 0xFF)] = 1;
-            if (ch == 27) KEY[27] = 1; // ESC
-        }
+        this_thread::sleep_for(chrono::milliseconds(1));
     }
 }
 
+void ResetKeys() {
+    keyUp = keyDown = keyLeft = keyRight = keyEsc = false;
+}
+
+int ReadInt(const string& text, int minVal, int maxVal, int defaultValue) {
+    while (true) {
+        cout << text;
+        string s;
+        getline(cin, s);
+
+        if (s.empty())
+            if (defaultValue > 1) return defaultValue;
+            else if (defaultValue == 0) {
+                userW = false;
+                break;
+            }
+            else if (defaultValue == 1) {
+                userH = false;
+                break;
+            }
+        try {
+            int v = stoi(s);
+            if (v < minVal || v > maxVal) {
+                cout << "Ошибка: число должно быть в диапазоне от " << minVal << " до " << maxVal << ".\n";
+                continue;
+            }
+            return v;
+        }
+        catch (...) {
+            cout << "Ошибка: введите целое число.\n";
+        }
+    }
+}
 // Очищаем ввод 
 void ClearInputBuffer() {
     while (_kbhit()) _getch();
@@ -120,134 +161,141 @@ bool IsPointOnSnake(const Point& p, const vector<Point>& snake, int snake_Len) {
 void DrawCell(const Point& p, char ch, int offsetX, int offsetY) {
     SetCursorPosition(offsetX + p.x, offsetY + p.y);
     putchar(ch);
-    fflush(stdout);
 }
 
 // Отрисовка поля (стены + пустые клетки)
 void DrawField(int offsetX, int offsetY) {
-    for (int y = 0; y < field_Height; ++y) {
+    for (int y = 0; y <= field_Height; ++y) {
         for (int x = 0; x < field_Width; ++x) {
-            char ch = (y == 0 || y == field_Height - 1 || x == 0 || x == field_Width - 1) ? CHAR_WALL : CHAR_EMPTY;
+            char ch = (y == 0 || y == field_Height || x == 0 || x == field_Width - 1) ? CHAR_WALL : CHAR_EMPTY;
             SetCursorPosition(offsetX + x, offsetY + y);
             putchar(ch);
         }
     }
-    fflush(stdout);
 }
 
-// Запрос на повтор игры
-char AskReplay(int offsetX, int offsetY) {
+// Меню повтора игры
+char MenuReplay(int& cW, int& cH, bool& repeat, bool& isFullscreenLike, bool& victory, int& score) {
+    repeat = false;
     while (true) {
-        ClearInputBuffer();
-        SetCursorPosition(offsetX, offsetY + field_Height + 2);
-        cout << "Сыграть ещё раз? (Y/N): ";
-        string input;
-        getline(cin, input);
-        if (input.empty()) continue;
-        char c = toupper(input[0]);
-        if (c == 'Y' || c == 'N') return c;
-        SetCursorPosition(offsetX, offsetY + field_Height + 3);
-        cout << "Введите только Y или N. \n";
+        int setX = cW / 2 - 10;
+        int setY = cH / 2 - 5;
+        if (isFullscreenLike) {
+            SetCursorPosition(setX, setY);
+            if (victory) cout << "ПОЗДРАВЛЯЮ! Вы набрали " << score << " из " << targetScore << '\n';
+            else cout << "Игра окончена! Счёт: " << score << '\n';
+            SetCursorPosition(setX, setY + 1);
+            cout << "Выберите действие:";
+            SetCursorPosition(setX, setY + 2);
+            cout << "1 - Повторить с теми же параметрами";
+            SetCursorPosition(setX, setY + 3);
+            cout << "2 - Запустить с новыми параметрами";
+            SetCursorPosition(setX, setY + 4);
+            cout << "3 - Выход";
+            SetCursorPosition(setX, setY + 5);
+            cout << "Выберите(1,2,3): ";
+        }
+        else {
+            SetCursorPosition(0, 0);
+            if (victory) cout << "ПОЗДРАВЛЯЮ! Вы набрали " << score << " из " << targetScore << '\n';
+            else cout << "Игра окончена! Счёт: " << score << '\n';
+            SetCursorPosition(0, 1);
+            cout << "Выберите действие:";
+            SetCursorPosition(0, 2);
+            cout << "1 - Повторить с теми же параметрами";
+            SetCursorPosition(0, 3);
+            cout << "2 - Запустить с новыми параметрами";
+            SetCursorPosition(0, 4);
+            cout << "3 - Выход";
+            SetCursorPosition(0, 5);
+            cout << "Выберите(1,2,3): ";
+        }
+
+        string s;
+        getline(cin, s);
+        cout << "\x1b[2J";
+        try {
+            int v = stoi(s);
+            if (v < 1 || v > 3) {
+                if (isFullscreenLike) SetCursorPosition(setX, setY + 6);
+                else SetCursorPosition(0, 6);
+                cout << "Ошибка: число должно быть в диапазоне от " << 1 << " до " << 3 << ".\n";
+                continue;
+            }
+            return v;
+        }
+        catch (...) {
+            if (isFullscreenLike) SetCursorPosition(setX, setY + 6);
+            cout << "Ошибка: введите целое число.\n";
+        }
     }
 }
 
 int main() {
     setlocale(LC_ALL, "");
     srand((unsigned int)time(0));
-
     while (true) {
+        if (!repeat) {
+            if (!isFullscreenLike) TryResizeConsole(120, 30);
 
-        int consoleCols = 80, consoleRows = 25;
-        GetConsoleSize(consoleCols, consoleRows); // начальная консоль
+            userW = true, userH = true;
+            GetConsoleSize(consoleCols, consoleRows); // начальная консоль
 
-        cout << "Текущее окно консоли (cols x rows): " << consoleCols << " x " << consoleRows << '\n';
-        cout << "Если хотите использовать размер консоли — просто нажмите Enter при вводе ширины/высоты.\n";
+            cout << "Текущее окно консоли (cols x rows): " << consoleCols << " x " << consoleRows << '\n';
+            cout << "Если хотите использовать размер консоли — просто нажмите Enter при вводе ширины/высоты.\n";
 
-        int tickMs = 150; // скорость
-        cout << "Введите скорость игры (20-1000, по умолчанию 150): ";
-        string input;
-        getline(cin, input);
-        if (!input.empty()) {
-            try { int v = stoi(input); if (v >= 20 && v <= 1000) tickMs = v; }
-            catch (...) {}
-        }
+            tickMs = ReadInt(
+                "Введите скорость (Диапазон: 20-1000, по умолчанию: Enter=150): ",
+                20, 1000, 150
+            );
 
-        cout << "Введите ширину поля (15-235) или Enter: ";
-        string wStr; getline(cin, wStr);
-        bool userW = false, userH = false;
-        int inW = 0, inH = 0;
-        if (!wStr.empty()) {
-            try { int v = stoi(wStr); if (v >= 10 && v <= 235) { inW = v; userW = true; } }
-            catch (...) {}
-        }
+            field_Width = ReadInt(
+                "Введите ширину поля (Диапазон: 15-235, по умолчанию: Enter=(ширина консоли)): ",
+                15, 235, 0
+            );
 
-        cout << "Введите высоту поля (10-65) или Enter: ";
-        string hStr; getline(cin, hStr);
-        if (!hStr.empty()) {
-            try { int v = stoi(hStr); if (v >= 10 && v <= 65) { inH = v; userH = true; } }
-            catch (...) {}
-        }
+            field_Height = ReadInt(
+                "Введите высоту поля (Диапазон: 10-62, по умолчанию: Enter=(высота консоли)): ",
+                10, 62, 1
+            );
 
-        GetConsoleSize(consoleCols, consoleRows);
+            GetConsoleSize(consoleCols, consoleRows);
 
-        const int MIN_W = 15, MIN_H = 10;
-        const int MAX_W = 235, MAX_H = 65;
+            const int MIN_W = 15, MIN_H = 10;
+            const int MAX_W = 235, MAX_H = 62;
 
+            // Проверка ширины и высоты
+            if (!userW && !userH) {
+                field_Width = max(MIN_W, min(MAX_W, consoleCols));
+                field_Height = max(MIN_W, min(MAX_W, consoleRows - 1));
+            }
+            // если введена только ширина
+            else if (userW && !userH) {
+                field_Height = max(MIN_H, min(MAX_H, consoleRows - 1));
+            }
+            // если введена только высота
+            else if (!userW && userH) {
+                field_Width = max(MIN_H, min(MAX_W, consoleCols));
+            }
 
-        // Проверка ширины и высоты
-        if (!userW && !userH) {
-            field_Width = max(MIN_W, min(MAX_W, consoleCols));
-            field_Height = max(MIN_H, min(MAX_H, consoleRows - 2));
-        }
-        // если введена только ширина
-        else if (userW && !userH) {
-            field_Width = max(MIN_W, min(MAX_W, inW));
-            field_Height = max(MIN_H, min(MAX_H, consoleRows - 2));
-        }
-        // если введена только высота
-        else if (!userW && userH) {
-            field_Width = max(MIN_W, min(MAX_W, consoleCols));
-            field_Height = max(MIN_H, min(MAX_H, inH));
-        }
-        // если обе введены
-        else {
-            field_Width = max(MIN_W, min(MAX_W, inW));
-            field_Height = max(MIN_H, min(MAX_H, inH));
-        }
-
-
-        // Усечение введеных ширины или длины для масштаба и разметки (125%) 
-        if (consoleCols == 211 && consoleRows == 54) {
-            if (field_Width >= 211) field_Width = 210;
-            if (field_Height >= 54) field_Height = 53;
-
-        }
-
-        if (consoleCols == 211 && consoleRows == 50) {
-            if (field_Width >= 211) field_Width = 210;
-            if (field_Height >= 50) field_Height = 49;
-        }
-
-        // Цель
-        int maxPossibleScore = max(1, (field_Width - 2) * (field_Height - 2) - 1);
-        int targetScore = 10;
-        cout << "Введите целевое количество очков для победы (1-" << maxPossibleScore << ", Enter=10): ";
-        string scoreStr; getline(cin, scoreStr);
-        if (!scoreStr.empty()) {
-            try { int v = stoi(scoreStr); 
-            if (v >= 1 && v <= maxPossibleScore) targetScore = v; }
-            catch (...) {}
+            // Цель
+            int maxPossibleScore = max(1, (field_Width - 2) * (field_Height - 2) - 1);
+            targetScore = ReadInt(
+                "Введите целевое количество очков для победы (1-" + to_string(maxPossibleScore) + ", по умолчанию: Enter=10): ",
+                1, maxPossibleScore, 10
+            );
         }
 
         GetConsoleSize(consoleCols, consoleRows);
-        bool isFullscreenLike = (consoleCols == 237 && (consoleRows == 63 || consoleRows == 67) ||
-            consoleCols == 211 && (consoleRows == 50 || consoleRows ==  54));
+        isFullscreenLike = (consoleCols == 237 || consoleCols == 240) && consoleRows == 67;
 
         // Адаптация консоли под игровое поле (свернутая консоль)
         if (!isFullscreenLike) {
+            if (field_Height > 62) field_Height = 61;
             TryResizeConsole(field_Width, field_Height + 2);
             GetConsoleSize(consoleCols, consoleRows);
         }
+        else if (field_Height == 66) field_Height--;
 
         // Вычисляем смещение (центрирование поля полностью - стены + содержимое)
         int offsetX = 0, offsetY = 0;
@@ -277,74 +325,102 @@ int main() {
 
         // Перед стартом чистим мусор
         ClearInputBuffer();
-        GetKEY();
+        ResetKeys();
+
+        stopInputThread = false;
+        thread inputThread(KeyboardListen);
+
+        auto lastTick = chrono::steady_clock::now();
+
+        int tickMsX = tickMs;
+        int tickMsY = int(tickMs * RATIO);
 
         // Главный цикл
         while (!gameOver && !victory) {
-            GetKEY();
-            if ((KEY['W'] || KEY['w']) && dir != DOWN) nextDir = UP;
-            else if ((KEY['S'] || KEY['s']) && dir != UP) nextDir = DOWN;
-            else if ((KEY['A'] || KEY['a']) && dir != RIGHT) nextDir = LEFT;
-            else if ((KEY['D'] || KEY['d']) && dir != LEFT) nextDir = RIGHT;
-            if (KEY[27]) { gameOver = true; break; }
 
-            dir = nextDir;
+            auto now = chrono::steady_clock::now();
+            auto delta = chrono::duration_cast<chrono::milliseconds>(now - lastTick).count();
 
-            // Стираем хвост (визуально)
-            if (snake_Len > 0) {
-                DrawCell(snake[snake_Len - 1], CHAR_EMPTY, offsetX, offsetY);
-            }
+            int currentTick = (dir == LEFT || dir == RIGHT) ? tickMsX : tickMsY;
 
-            // Сдвигаем тело
-            if (snake_Len > 1) for (int i = snake_Len - 2; i >= 0; --i) snake[i + 1] = snake[i];
+            if (delta >= currentTick) {
+                lastTick = now;
 
-            // Передвижение головы
-            switch (dir) {
-            case UP: snake[0].y--; break;
-            case DOWN: snake[0].y++; break;
-            case LEFT: snake[0].x--; break;
-            case RIGHT: snake[0].x++; break;
-            }
+                if (keyUp && dir != DOWN)      nextDir = UP;
+                else if (keyDown && dir != UP) nextDir = DOWN;
+                else if (keyLeft && dir != RIGHT) nextDir = LEFT;
+                else if (keyRight && dir != LEFT) nextDir = RIGHT;
 
-            // Рисуем голову и следующий сегмент
-            DrawCell(snake[0], CHAR_SNAKE_HEAD, offsetX, offsetY);
-            if (snake_Len > 1) DrawCell(snake[1], CHAR_SNAKE, offsetX, offsetY);
+                if (keyEsc) { gameOver = true; break; }
 
-            // Столкновение со стеной
-            if (snake[0].x <= 0 || snake[0].x >= field_Width - 1 || snake[0].y <= 0 || snake[0].y >= field_Height - 1) {
-                gameOver = true; break;
-            }
-            // Столкновение с хвостом
-            for (int i = 1; i < snake_Len; ++i) if (snake[i].x == snake[0].x && snake[i].y == snake[0].y) { 
-                gameOver = true; break; 
-            }
-            if (gameOver) break;
+                ResetKeys();
 
-            // Поедание еды
-            if (snake[0].x == food.x && snake[0].y == food.y) {
-                ++score;
-                ++snake_Len;
-                snake.push_back(snake.back()); // новый сегмент
-                if (score >= targetScore) { victory = true; break; }
-                do { food = RandomPoint(); } while (IsPointOnSnake(food, snake, snake_Len));
-                DrawCell(food, CHAR_FOOD, offsetX, offsetY);
+                dir = nextDir;
+
+                // Стираем хвост (визуально)
+                if (snake_Len > 0) {
+                    DrawCell(snake[snake_Len - 1], CHAR_EMPTY, offsetX, offsetY);
+                }
+
+                // Сдвигаем тело
+                if (snake_Len > 1) for (int i = snake_Len - 2; i >= 0; --i) snake[i + 1] = snake[i];
+
+                // Передвижение головы
+                switch (dir) {
+                case UP: snake[0].y--; break;
+                case DOWN: snake[0].y++; break;
+                case LEFT: snake[0].x--; break;
+                case RIGHT: snake[0].x++; break;
+                }
+
+                // Рисуем голову и следующий сегмент
+                DrawCell(snake[0], CHAR_SNAKE_HEAD, offsetX, offsetY);
+                if (snake_Len > 1) DrawCell(snake[1], CHAR_SNAKE, offsetX, offsetY);
+
+                // Столкновение со стеной
+                if (snake[0].x <= 0 || snake[0].x >= field_Width - 1 || snake[0].y <= 0 || snake[0].y >= field_Height) {
+                    gameOver = true; break;
+                }
+                // Столкновение с хвостом
+                for (int i = 1; i < snake_Len; ++i) if (snake[i].x == snake[0].x && snake[i].y == snake[0].y) {
+                    gameOver = true; break;
+                }
+                if (gameOver) break;
+
+                // Поедание еды
+                if (snake[0].x == food.x && snake[0].y == food.y) {
+                    ++score;
+                    ++snake_Len;
+                    snake.push_back(snake.back()); // новый сегмент
+                    if (score == targetScore) { victory = true; break; }
+                    do { food = RandomPoint(); } while (IsPointOnSnake(food, snake, snake_Len));
+                    DrawCell(food, CHAR_FOOD, offsetX, offsetY);
+                }
             }
 
             // Статусная строка (нижняя строка отрисовки)
-            SetCursorPosition(offsetX, offsetY + field_Height);
+            SetCursorPosition(offsetX, offsetY + field_Height + 1);
             printf("Счёт: %d / %d    ", score, targetScore);
-            fflush(stdout);
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(tickMs));
+            this_thread::sleep_for(chrono::milliseconds(1));
         }
 
-        // Завершение / вывод результатов
-        ShowCursor();
         SetCursorPosition(offsetX, offsetY + field_Height + 1);
-        if (victory) cout << "ПОЗДРАВЛЯЮ! Вы набрали " << score << " из " << targetScore << '\n';
-        else cout << "Игра окончена! Счёт: " << score << '\n';
+        printf("Счёт: %d / %d    ", score, targetScore);
 
-        if (AskReplay(offsetX, offsetY) == 'N') break;
+        stopInputThread = true;
+        inputThread.join();
+
+        // Завершение / вывод результатов
+        this_thread::sleep_for(chrono::milliseconds(1000));
+        if (!isFullscreenLike) TryResizeConsole(50, 20);
+        ShowCursor();
+        cout << "\x1b[2J";
+
+        int quest = MenuReplay(consoleCols, consoleRows, repeat, isFullscreenLike, victory, score);
+        if (quest == 1) repeat = true;
+        if (quest == 3) break;
+        printf("\x1b[2J\x1b[H");
     }
 
     return 0;
