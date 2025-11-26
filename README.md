@@ -97,7 +97,7 @@ powershell -NoProfile -Command "[Console]::WindowWidth; [Console]::WindowHeight"
 | Столкновение со стеной | Проигрыш |
 | Столкновение с телом | Проигрыш |
 | Достигнут целевой счет | Победа |
-| Нажатие `ESC` | Завершение |
+| Нажатие `ESC` | Выход в меню |
 
 ---
 
@@ -105,7 +105,7 @@ powershell -NoProfile -Command "[Console]::WindowWidth; [Console]::WindowHeight"
 
 | Компонент | Требование |
 |----------|------------|
-| ОС       | Windows (любая, начиная с 7) |
+| ОС       | Windows (любая, начиная с 10) |
 | Компилятор | MSVC / MinGW / g++ (поддержка `<conio.h>`) |
 | Консоль  | Поддержка ANSI escape codes (Windows 10+ рекомендуется) |
 
@@ -117,15 +117,17 @@ powershell -NoProfile -Command "[Console]::WindowWidth; [Console]::WindowHeight"
 | `SetCursorPosition(x, y)` | Перемещает курсор по координатам. |
 | `ClearScreen()` | Полностью очищает консоль и возвращает курсор в (0,0). |
 | `HideCursor()` / `ShowCursor()` | Управляют отображением системного курсора. |
-| `GetConsoleSize(cols, rows)` | Получает текущий размер окна через PowerShell. |
+| `GetConsoleSize(cols, rows)` | Получает текущий размер окна через ANSI-запрос `\x1b[6n`. |
 | `TryResizeConsole(cols, rows)` | Изменяет размеры окна консоли через `mode con`. |
-| `GetKEY()` | Считывает нажатые клавиши без блокировки (`_kbhit()` / `_getch()`). |
+| `KeyboardListen()` | Поток, который постоянно считывает ввод клавиш и устанавливает флаги управления. |
+| `ResetKeys()` | Сбрасывает флаги `keyUp`, `keyDown`, `keyLeft`, `keyRight`, `keyEsc`. |
+| `ReadInt(text, minVal, maxVal, defaultValue)` | Читает вводные данные поля и проверяет диапазон значений. |
 | `ClearInputBuffer()` | Очищает буфер ввода, устраняя «залипшие» клавиши. |
 | `RandomPoint()` | Возвращает случайную точку внутри игрового поля. |
 | `IsPointOnSnake(p, snake, len)` | Проверяет, занимает ли точка часть тела змейки. |
 | `DrawCell(p, ch, offsetX, offsetY)` | Рисует символ в игровом поле с учётом центрирования. |
 | `DrawField(offsetX, offsetY)` | Отрисовывает рамку и пустое игровое поле. |
-| `AskReplay()` | Спрашивает пользователя о повторном запуске. |
+| `MenuReplay(cW, cH, repeat, isFullscreenLike, victory, score)` | Отображает меню после игры и возвращает выбранное действие.|
 
 ---
 
